@@ -1,0 +1,146 @@
+# Copyright (c) 2013-2017 Snowplow Analytics Ltd. All rights reserved.
+#
+# This program is licensed to you under the Apache License Version 2.0, and
+# you may not use this file except in compliance with the Apache License
+# Version 2.0.  You may obtain a copy of the Apache License Version 2.0 at
+# http://www.apache.org/licenses/LICENSE-2.0.
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the Apache License Version 2.0 is distributed on an "AS
+# IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
+# implied.  See the Apache License Version 2.0 for the specific language
+# governing permissions and limitations there under.
+
+# This file (application.conf.example) contains a template with
+# configuration options for Stream Enrich.
+
+enrich {
+  # Sources currently supported are:
+  # 'kinesis' for reading Thrift-serialized records from a Kinesis stream
+  # 'kafka' for reading Thrift-serialized records from a Kafka topic
+  # 'nsq' for reading Thrift-serialized records from a Nsq topic
+  # 'stdin' for reading Base64-encoded Thrift-serialized records from stdin
+  source = kinesis
+
+  # Sinks currently supported are:
+  # 'kinesis' for writing enriched events to one Kinesis stream and invalid events to another.
+  # 'kafka' for writing enriched events to one Kafka topic and invalid events to another.
+  # 'nsq' for writing enriched events to one Nsq topic and invalid events to another.
+  # 'stdouterr' for writing enriched events to stdout and invalid events to stderr.
+  #    Using "sbt assembly" and "java -jar" is recommended to disable sbt logging.
+  sink = kinesis
+
+  # AWS credentials
+  # If both are set to 'default', use the default AWS credentials provider chain.
+  # If both are set to 'iam', use AWS IAM Roles to provision credentials.
+  # If both are set to 'env', use environment variables AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY
+  aws {
+    accessKey = iam
+    secretKey = iam
+  }
+
+  streams {
+    in {
+      # Stream/topic where the raw events to be enriched are located
+      raw = {{streamsInRaw}}
+    }
+
+    out {
+      # Stream/topic where the events that were successfully enriched will end up
+      enriched = {{outEnriched}}
+      # Stream/topic where the event that failed enrichment will be stored
+      bad = {{outBad}}
+
+      # How the output stream/topic will be partitioned.
+      # Possible partition keys are: event_id, event_fingerprint, domain_userid, network_userid,
+      # user_ipaddress, domain_sessionid, user_fingerprint.
+      # Refer to https://github.com/snowplow/snowplow/wiki/canonical-event-model to know what the
+      # possible parittion keys correspond to.
+      # Otherwise, the partition key will be a random UUID.
+      # Note: Nsq does not make use of partition key.
+      partitionKey = {{partitionKeyName}}
+    }
+
+    kinesis {
+      # Region where the streams are located
+      region = {{region}}
+
+      # Maximum number of records to get from Kinesis per call to GetRecords
+      maxRecords = 10000
+
+      # LATEST: most recent data.
+      # TRIM_HORIZON: oldest available data.
+      # "AT_TIMESTAMP": Start from the record at or after the specified timestamp
+      # Note: This only effects the first run of this application on a stream.
+      initialPosition = TRIM_HORIZON
+
+      # Need to be specified when initial-position is "AT_TIMESTAMP".
+      # Timestamp format need to be in "yyyy-MM-ddTHH:mm:ssZ".
+      # Ex: "2017-05-17T10:00:00Z"
+      # Note: Time need to specified in UTC.
+      initialTimestamp = "{{initialTimestamp}}"
+
+      # Minimum and maximum backoff periods, in milliseconds
+      backoffPolicy {
+        minBackoff = {{enrichStreamsOutMinBackoff}}
+        maxBackoff = {{enrichStreamsOutMaxBackoff}}
+      }
+    }
+
+    # Kafka configuration
+    kafka {
+      brokers = "{{kafkaBrokers}}"
+
+      # Number of retries to perform before giving up on sending a record
+      retries = 0
+    }
+
+    # config for nsq
+    nsq {
+      # Channel name for nsq source
+      # If more than one application is reading from the same NSQ topic at the same time,
+      # all of them must have the same channel name
+      rawChannel = "{{nsqSourceChannelName}}"
+
+      # Host name for nsqd
+      host = "{{nsqHost}}"
+
+      # TCP port for nsqd, 4150 by default
+      port = {{nsqdPort}}
+
+      # Host name for lookupd
+      lookupHost = "{{lookupHost}}"
+
+      # HTTP port for nsqlookupd, 4161 by default
+      lookupPort = {{nsqlookupdPort}}
+    }
+
+    # After enrichment, events are accumulated in a buffer before being sent to Kinesis/Kafka.
+    # Note: Buffering is not supported by NSQ.
+    # The buffer is emptied whenever:
+    # - the number of stored records reaches recordLimit or
+    # - the combined size of the stored records reaches byteLimit or
+    # - the time in milliseconds since it was last emptied exceeds timeLimit when
+    #   a new event enters the buffer
+    buffer {
+      byteLimit = {{bufferByteThreshold}}
+      recordLimit = {{bufferRecordThreshold}} # Not supported by Kafka; will be ignored
+      timeLimit = {{bufferTimeThreshold}}
+    }
+
+    # Used for a DynamoDB table to maintain stream state.
+    # Used as the Kafka consumer group ID.
+    # You can set it automatically using: "SnowplowEnrich-$\\{enrich.streams.in.raw\\}"
+    appName = "{{appName}}"
+  }
+
+  # Optional section for tracking endpoints
+  monitoring {
+    snowplow {
+      collectorUri = "{{collectorUri}}"
+      collectorPort = 80
+      appId = {{enrichAppName}}
+      method = GET
+    }
+  }
+}
